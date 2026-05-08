@@ -1,6 +1,6 @@
-# 🐾 Petclinic Kubernetes 인프라 구성
+# 🐾 AWS EKS 활용하여 컨테이너기반의 3Tier 서비스 운영
 
-Spring Petclinic 애플리케이션을 AWS EKS 위에 배포한 인프라 구성 문서입니다.
+Petclinic 애플리케이션을 AWS EKS 위에 배포한 인프라 구성 문서입니다.
 
 ---
 
