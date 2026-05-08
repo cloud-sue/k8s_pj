@@ -1,0 +1,70 @@
+# ================================================
+# Stage 1: Build - 소스 클론 + Maven WAR 빌드
+# ================================================
+FROM maven:3.9-eclipse-temurin-17 AS builder
+
+# git 설치
+RUN apt-get update && apt-get install -y git && apt-get clean
+
+# 소스코드 클론
+RUN git clone https://github.com/smhrd-sue/petclinic_btc.git /backend
+
+WORKDIR /backend
+
+# Maven 빌드 (WAR 생성)
+RUN mvn clean package -DskipTests -B \
+    -P MySQL \
+    -Ddb.url=jdbc:mysql://petclinic-db.cd8yaap4uocm.ap-northeast-2.rds.amazonaws.com:3306/petclinic \
+    -Ddb.user=admin \
+    -Ddb.pw=pet12345
+
+# ================================================
+# Stage 2: Runtime - Tomcat 실행 환경
+# ================================================
+FROM rockylinux:9
+
+# 패키지 설치
+RUN dnf update -y --allowerasing && \
+    dnf install -y wget java-17-openjdk java-17-openjdk-devel && \
+    dnf clean all
+
+# Tomcat 설치
+RUN useradd -m -U -d /opt/tomcat -s /bin/false tomcat && \
+    wget https://archive.apache.org/dist/tomcat/tomcat-9/v9.0.86/bin/apache-tomcat-9.0.86.tar.gz -P /tmp && \
+    tar -xf /tmp/apache-tomcat-9.0.86.tar.gz -C /opt/tomcat && \
+    chown -R tomcat: /opt/tomcat && \
+    chmod +x /opt/tomcat/apache-tomcat-9.0.86/bin/*.sh && \
+    rm /tmp/apache-tomcat-9.0.86.tar.gz
+
+# Manager/Host-Manager 액세스 열기 (Value 주석처리)
+RUN sed -i 's|<Valve className="org.apache.catalina.valves.RemoteAddrValve"|\<!-- <Valve className="org.apache.catalina.valves.RemoteAddrValve"|g' \
+        /opt/tomcat/apache-tomcat-9.0.86/webapps/manager/META-INF/context.xml && \
+    sed -i 's|allow="127\\.*" />|allow="127\\.*" /> -->|g' \
+        /opt/tomcat/apache-tomcat-9.0.86/webapps/manager/META-INF/context.xml && \
+    sed -i 's|<Valve className="org.apache.catalina.valves.RemoteAddrValve"|\<!-- <Valve className="org.apache.catalina.valves.RemoteAddrValve"|g' \
+        /opt/tomcat/apache-tomcat-9.0.86/webapps/host-manager/META-INF/context.xml && \
+    sed -i 's|allow="127\\.*" />|allow="127\\.*" /> -->|g' \
+        /opt/tomcat/apache-tomcat-9.0.86/webapps/host-manager/META-INF/context.xml
+
+
+ENV TZ=Asia/Seoul
+ENV LANG=ko_KR.UTF-8
+
+# DB 연결 환경변수 (k8s에서 주입 가능하도록)
+#ENV DB_HOST=localhost
+#ENV DB_PORT=3306
+#ENV DB_NAME=petclinic
+ENV db.url=localhost
+ENV db.user=root
+ENV db.pw=password
+
+# Stage 1에서 빌드된 WAR 파일만 복사
+COPY --from=builder /backend/target/petclinic.war \
+     /opt/tomcat/apache-tomcat-9.0.86/webapps/petclinic.war
+
+USER tomcat
+
+EXPOSE 8080
+
+# Tomcat 실행만! 설치 없음
+CMD ["/opt/tomcat/apache-tomcat-9.0.86/bin/catalina.sh", "run"]

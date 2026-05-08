@@ -1,0 +1,103 @@
+---
+# ================================================================
+# Web Deployment
+# 웹 서버(nginx) 컨테이너를 K8s에서 실행하기 위한 설정
+# ================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: petclinic       # WAS와 같은 네임스페이스 (같은 공간 = 서비스 이름으로 통신 가능)
+  labels:
+    app: web
+spec:
+  replicas: 2                # Web Pod 2개 띄움 (하나 죽어도 서비스 유지)
+  selector:
+    matchLabels:
+      app: web               # 아래 template의 labels.app: web 과 매칭해서 Pod 관리
+  template:
+    metadata:
+      labels:
+        app: web             # Service가 이 라벨로 Pod를 찾아서 트래픽 전달
+    spec:
+      containers:
+        - name: web
+          image: 102120298168.dkr.ecr.ap-northeast-2.amazonaws.com/petclinic-frontend:latest  # ECR에서 이미지 pull
+          ports:
+            - containerPort: 80    # 컨테이너 내부 nginx 포트
+
+          # livenessProbe: Pod가 살아있는지 주기적으로 체크
+          # 실패하면 컨테이너 재시작
+          livenessProbe:
+            httpGet:
+              path: /health        # nginx의 /health 엔드포인트 호출
+              port: 80
+            initialDelaySeconds: 10  # 컨테이너 시작 후 10초 뒤부터 체크 시작
+            periodSeconds: 30        # 30초마다 체크
+
+          # readinessProbe: Pod가 트래픽 받을 준비됐는지 체크
+          # 실패하면 Service에서 해당 Pod 제외 (재시작 X)
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 5   # 시작 후 5초 뒤부터 체크
+            periodSeconds: 10        # 10초마다 체크
+
+          # resources: CPU/메모리 사용량 제한
+          resources:
+            requests:                # 최소 보장 자원 (스케줄링 기준)
+              cpu: "100m"            # 0.1 core
+              memory: "128Mi"
+            limits:                  # 최대 사용 가능 자원 (초과시 OOM kill)
+              cpu: "300m"            # 0.3 core
+              memory: "256Mi"
+
+---
+# ================================================================
+# Web Service (ClusterIP)
+# Web Pod로 트래픽을 전달하는 내부 로드밸런서
+# ClusterIP = 클러스터 내부에서만 접근 가능 (외부 노출 X)
+# ================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-svc              # Ingress에서 이 이름으로 연결
+  namespace: petclinic
+spec:
+  selector:
+    app: web                 # labels.app: web 인 Pod에게 트래픽 전달
+  ports:
+    - protocol: TCP
+      port: 80               # Service가 받는 포트
+      targetPort: 80         # Pod로 전달하는 포트
+  type: ClusterIP            # 내부 전용 (외부 IP 없음)
+
+---
+# ================================================================
+# Ingress
+# 외부 트래픽을 받아서 web-svc로 라우팅
+# Ingress Controller(nginx)가 이 규칙을 읽어서 실제 처리
+# ================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: web-ingress
+  namespace: petclinic
+  annotations:
+    kubernetes.io/ingress.class: "nginx"                        # nginx Ingress Controller 사용
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"            # HTTP → HTTPS 자동 리다이렉트
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"     # WAS 연결 대기 최대 10초
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"        # WAS 응답 대기 최대 60초
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /                  # 모든 경로 (/ 이하 전부)
+            pathType: Prefix
+            backend:
+              service:
+                name: web-svc        # 트래픽 전달할 Service 이름
+                port:
+                  number: 80

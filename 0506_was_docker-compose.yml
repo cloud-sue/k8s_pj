@@ -1,0 +1,11 @@
+services:
+  was:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      db.url: jdbc:mysql://petclinic-db.cd8yaap4uocm.ap-northeast-2.rds.amazonaws.com:3306/petclinic
+      db.user: admin
+      db.pw: pet12345

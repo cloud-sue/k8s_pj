@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: was
+  namespace: petclinic
+  labels:
+    app: was
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: was
+  template:
+    metadata:
+      labels:
+        app: was
+    spec:
+      containers:
+        - name: was
+          image: 102120298168.dkr.ecr.ap-northeast-2.amazonaws.com/petclinic-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: db.url
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: db.url
+            - name: db.user
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: db.user
+            - name: db.pw
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: db.pw
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1024Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: was-svc
+  namespace: petclinic
+spec:
+  selector:
+    app: was
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+  type: ClusterIP
